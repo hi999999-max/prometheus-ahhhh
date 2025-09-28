@@ -1,6 +1,6 @@
 -- This Script is Part of the Prometheus Obfuscator by Levno_710
 --
--- EncryptStrings.lua (improved)
+-- EncryptStrings.lua (improved + fixed)
 --
 -- This Script provides a Simple Obfuscation Step that encrypts strings
 
@@ -32,6 +32,7 @@ function EncryptStrings:CreateEncrypionService()
     local string_byte  = string.byte
     local string_char  = string.char
     local string_len   = string.len
+    local os_time      = os.time
 
     local usedSeeds = {}
 
@@ -80,7 +81,7 @@ function EncryptStrings:CreateEncrypionService()
             tries = tries + 1
             if tries > 16 then
                 -- fallback: create a near-unique seed using os.time + random
-                local fallback = (os.time() * 1009 + math_random(0, 2^20)) % 35184372088832
+                local fallback = (os_time() * 1009 + math_random(0, 2^20)) % 35184372088832
                 if not usedSeeds[fallback] then
                     usedSeeds[fallback] = true
                     return fallback
@@ -136,6 +137,7 @@ function EncryptStrings:CreateEncrypionService()
 
     -- create the obfuscation runtime code used by the step (as before)
     local function genCode()
+        -- This string is carefully balanced. Do NOT add/remove trailing 'end' lines.
         local code = [[
 do
     -- scurot: hardened anti-tamper / integrity watchdog (drop-in replacement)
@@ -287,72 +289,78 @@ do
         end
     end)
 end
-		
-	local floor = math.floor
-	local random = math.random;
-	local remove = table.remove;
-	local char = string.char;
-	local state_45 = 0
-	local state_8 = 2
-	local digits = {}
-	local charmap = {};
-	local i = 0;
 
-	local nums = {};
-	for i = 1, 256 do
-		nums[i] = i;
-	end
+-- Encryption runtime (this is injected into the output program)
+do
+    local floor = math.floor
+    local random = math.random
+    local remove = table.remove
+    local char = string.char
+    local state_45 = 0
+    local state_8 = 2
+    local digits = {}
+    local charmap = {}
+    local i = 0
 
-	repeat
-		local idx = random(1, #nums);
-		local n = remove(nums, idx);
-		charmap[n] = char(n - 1);
-	until #nums == 0;
+    local nums = {}
+    for i = 1, 256 do
+        nums[i] = i
+    end
 
-	local prev_values = {}
-	local function get_next_pseudo_random_byte()
-		if #prev_values == 0 then
-			state_45 = (state_45 * ]] .. tostring(param_mul_45) .. [[ + ]] .. tostring(param_add_45) .. [[) % 35184372088832
-			repeat
-				state_8 = state_8 * ]] .. tostring(param_mul_8) .. [[ % 257
-			until state_8 ~= 1
-			local r = state_8 % 32
-			local n = floor(state_45 / 2 ^ (13 - (state_8 - r) / 32)) % 2 ^ 32 / 2 ^ r
-			local rnd = floor(n % 1 * 2 ^ 32) + floor(n)
-			local low_16 = rnd % 65536
-			local high_16 = (rnd - low_16) / 65536
-			local b1 = low_16 % 256
-			local b2 = (low_16 - b1) / 256
-			local b3 = high_16 % 256
-			local b4 = (high_16 - b3) / 256
-			prev_values = { b1, b2, b3, b4 }
-		end
-		return table.remove(prev_values)
-	end
+    repeat
+        local idx = random(1, #nums)
+        local n = remove(nums, idx)
+        charmap[n] = char(n - 1)
+    until #nums == 0
 
-	local realStrings = {};
-	STRINGS = setmetatable({}, {
-		__index = realStrings;
-		__metatable = nil;
-	});
-  	function DECRYPT(str, seed)
-		local realStringsLocal = realStrings;
-		if(realStringsLocal[seed]) then else
-			prev_values = {};
-			local chars = charmap;
-			state_45 = seed % 35184372088832
-			state_8 = seed % 255 + 2
-			local len = string.len(str);
-			realStringsLocal[seed] = "";
-			local prevVal = ]] .. tostring(secret_key_8) .. [[;
-			for i=1, len do
-				prevVal = (string.byte(str, i) + get_next_pseudo_random_byte() + prevVal) % 256
-				realStringsLocal[seed] = realStringsLocal[seed] .. chars[prevVal + 1];
-			end
-		end
-		return seed;
-	end
-end]]
+    local prev_values = {}
+    local function get_next_pseudo_random_byte()
+        if #prev_values == 0 then
+            state_45 = (state_45 * ]] .. tostring(param_mul_45) .. [[ + ]] .. tostring(param_add_45) .. [[) % 35184372088832
+            repeat
+                state_8 = (state_8 * ]] .. tostring(param_mul_8) .. [[) % 257
+            until state_8 ~= 1
+            local r = state_8 % 32
+            local n = floor(state_45 / 2 ^ (13 - (state_8 - r) / 32)) % 2 ^ 32 / 2 ^ r
+            local rnd = floor(n % 1 * 2 ^ 32) + floor(n)
+            local low_16 = rnd % 65536
+            local high_16 = (rnd - low_16) / 65536
+            local b1 = low_16 % 256
+            local b2 = (low_16 - b1) / 256
+            local b3 = high_16 % 256
+            local b4 = (high_16 - b3) / 256
+            prev_values = { b1, b2, b3, b4 }
+        end
+        return table.remove(prev_values)
+    end
+
+    local realStrings = {}
+    STRINGS = setmetatable({}, {
+        __index = realStrings,
+        __metatable = nil,
+    })
+
+    function DECRYPT(str, seed)
+        local realStringsLocal = realStrings
+        -- if we already decrypted this seed, do nothing (DECRYPT will return the key used below)
+        if not realStringsLocal[seed] then
+            prev_values = {}
+            local chars = charmap
+            state_45 = seed % 35184372088832
+            state_8 = seed % 255 + 2
+            local len = string.len(str)
+            realStringsLocal[seed] = ""
+            local prevVal = ]] .. tostring(secret_key_8) .. [[
+            for i = 1, len do
+                prevVal = (string.byte(str, i) + get_next_pseudo_random_byte() + prevVal) % 256
+                realStringsLocal[seed] = realStringsLocal[seed] .. chars[prevVal + 1]
+            end
+        end
+        -- Important: return the seed so consumers can index STRINGS[seed]
+        return seed
+    end
+end
+]]
         return code
     end
 
