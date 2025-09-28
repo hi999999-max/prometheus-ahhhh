@@ -26,6 +26,10 @@ return {
             }},
 
             { Name = "AntiTamper"; Settings = { UseDebug = false } },
+
+            -- 🆕 Add our Integrity Checks step here
+            { Name = "InjectIntegrityChecks"; Settings = {} },
+
             { Name = "Vmify"; Settings = {} },
             { Name = "ConstantArray"; Settings = {
                 Treshold    = 1;

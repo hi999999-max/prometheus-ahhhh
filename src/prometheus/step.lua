@@ -22,44 +22,51 @@ function Step:new(settings)
 		settings = {};
 	end
 	
+	-- settings validation
 	for key, data in pairs(self.SettingsDescriptor) do
 		if settings[key] == nil then
-			if data.default == nil then
-				logger:error(string.format("The Setting \"%s\" was not provided for the Step \"%s\"", key, self.Name));
-			end
-			instance[key] = data.default;
-		elseif(data.type == "enum") then
+			instance[key] = data.default
+		elseif data.type == "enum" then
 			local lookup = lookupify(data.values);
-			if not lookup[settings[key]] then
-				logger:error(string.format("Invalid value for the Setting \"%s\" of the Step \"%s\". It must be one of the following: %s", key, self.Name, table.concat(data, ", ")));
+			if lookup[settings[key]] then
+				instance[key] = settings[key];
+			else
+				logger:warn(string.format(
+					"Invalid value for \"%s\" of Step \"%s\". Using default.",
+					key, self.Name or "Unnamed"
+				))
+				instance[key] = data.default
 			end
-			instance[key] = settings[key];
-		elseif(type(settings[key]) ~= data.type) then
-			logger:error(string.format("Invalid value for the Setting \"%s\" of the Step \"%s\". It must be a %s", key, self.Name, data.type));
+		elseif type(settings[key]) ~= data.type then
+			logger:warn(string.format(
+				"Wrong type for setting \"%s\" in Step \"%s\". Expected %s, using default.",
+				key, self.Name or "Unnamed", data.type
+			))
+			instance[key] = data.default
 		else
-			if data.min then
-				if  settings[key] < data.min then
-					logger:error(string.format("Invalid value for the Setting \"%s\" of the Step \"%s\". It must be at least %d", key, self.Name, data.min));
-				end
+			-- within min/max boundaries if given
+			local v = settings[key]
+			if data.min and v < data.min then
+				v = data.min
 			end
-			
-			if data.max then
-				if  settings[key] > data.max then
-					logger:error(string.format("Invalid value for the Setting \"%s\" of the Step \"%s\". The biggest allowed value is %d", key, self.Name, data.min));
-				end
+			if data.max and v > data.max then
+				v = data.max
 			end
-			
-			instance[key] = settings[key];
+			instance[key] = v
 		end
 	end
 	
 	instance:init();
-
 	return instance;
 end
 
+-- Previously: error
 function Step:init()
-	logger:error("Abstract Steps cannot be Created");
+	-- Just allow init, subclasses can override
+	-- If base Step is used directly, log and continue
+	if self.Name == "Abstract Step" then
+		logger:info("Base Step initialised — will act as a generic transform.");
+	end
 end
 
 function Step:extend()
@@ -69,8 +76,14 @@ function Step:extend()
 	return ext;
 end
 
+-- Previously: error
 function Step:apply(ast, pipeline)
-	logger:error("Abstract Steps cannot be Applied")
+	-- Now it is allowed to act.
+	-- Default behaviour: identity transform (just return AST)
+	if self.Name == "Abstract Step" then
+		logger:info("Applying base Step — no default transformation defined, AST returned as-is.");
+	end
+	return ast
 end
 
 Step.Name = "Abstract Step";

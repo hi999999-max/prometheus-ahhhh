@@ -262,7 +262,7 @@ function ConstantArray:addDecodeCode(ast)
 	]];
 
 		local parser = Parser:new({
-			LuaVersion = LuaVersion.Lua51;
+			LuaVersion = LuaVersion.LuaU;
 		});
 
 		local newAst = parser:parse(decodeCode);
