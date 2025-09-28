@@ -377,54 +377,54 @@ end
 
 function EncryptStrings:apply(ast, pipeline)
     local Encryptor = self:CreateEncrypionService()
-
     local code = Encryptor.genCode()
     local newAst = Parser:new({ LuaVersion = Enums.LuaVersion.Lua51 }):parse(code)
-    local doStat = newAst.body.statements[1]
 
     local scope = ast.body.scope
     local decryptVar = scope:addVariable()
     local stringsVar = scope:addVariable()
 
-    doStat.body.scope:setParent(ast.body.scope)
+    -- Grab the first statement (do block) from generated AST
+    local doStat = newAst.body.statements[1]
+    -- Set its scope parent correctly
+    doStat.body.scope:setParent(scope)
 
+    -- Fix references inside the new AST
     visitast(newAst, nil, function(node, data)
-        if node.kind == AstKind.FunctionDeclaration then
+        if node.kind == AstKind.FunctionDeclaration and node.id then
             if node.scope:getVariableName(node.id) == "DECRYPT" then
+                -- Remove old reference and replace with main scope variable
                 data.scope:removeReferenceToHigherScope(node.scope, node.id)
-                data.scope:addReferenceToHigherScope(scope, decryptVar)
+                node.id = decryptVar
                 node.scope = scope
-                node.id    = decryptVar
             end
-        end
-        if node.kind == AstKind.AssignmentVariable or node.kind == AstKind.VariableExpression then
+        elseif (node.kind == AstKind.AssignmentVariable or node.kind == AstKind.VariableExpression) and node.id then
             if node.scope:getVariableName(node.id) == "STRINGS" then
                 data.scope:removeReferenceToHigherScope(node.scope, node.id)
-                data.scope:addReferenceToHigherScope(scope, stringsVar)
+                node.id = stringsVar
                 node.scope = scope
-                node.id    = stringsVar
             end
         end
     end)
 
+    -- Replace string literals in the main AST
     visitast(ast, nil, function(node, data)
         if node.kind == AstKind.StringExpression then
-            data.scope:addReferenceToHigherScope(scope, stringsVar)
-            data.scope:addReferenceToHigherScope(scope, decryptVar)
             local encrypted, seed = Encryptor.encrypt(node.value)
             return Ast.IndexExpression(
                 Ast.VariableExpression(scope, stringsVar),
-                Ast.FunctionCallExpression(Ast.VariableExpression(scope, decryptVar), {
-                    Ast.StringExpression(encrypted),
-                    Ast.NumberExpression(seed),
-                })
+                Ast.FunctionCallExpression(
+                    Ast.VariableExpression(scope, decryptVar),
+                    { Ast.StringExpression(encrypted), Ast.NumberExpression(seed) }
+                )
             )
         end
     end)
 
-    -- Insert to Main Ast (keep same insertion order)
+    -- Insert DECRYPT block into main AST
     table.insert(ast.body.statements, 1, doStat)
     table.insert(ast.body.statements, 1, Ast.LocalVariableDeclaration(scope, util.shuffle{ decryptVar, stringsVar }, {}))
+
     return ast
 end
 
