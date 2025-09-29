@@ -541,6 +541,12 @@ function Ast.GreaterThanOrEqualsExpression(lhs, rhs, simplify)
 	}
 end
 
+AstKind.TypedVariableExpression = "TypedVariableExpression"
+
+function Ast.TypedVariableExpression(scope, id, typeAnnotation)
+    return { kind = AstKind.TypedVariableExpression, scope = scope, id = id, typeAnnotation = typeAnnotation }
+end
+
 function Ast.NotEqualsExpression(lhs, rhs, simplify)
 	if(simplify and rhs.isConstant and lhs.isConstant) then
 		local success, val = pcall(function() return lhs.value ~= rhs.value end);

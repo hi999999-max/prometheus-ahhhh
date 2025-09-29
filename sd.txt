@@ -1,0 +1,5 @@
+local e = 3
+local q = 3
+q += e
+print(e)
+print(q)

@@ -10,8 +10,17 @@ return {
         PrettyPrint = false;
         -- Seed (0 uses current time)
         Seed = 0;
+
         -- Obfuscation steps
         Steps = {
+            -- ✅ Integrity Checks (lightweight dummy checks in functions)
+            { Name = "InjectIntegrityChecks"; Settings = {} },
+
+            -- ✅ Noisy Expressions (complex junk code for confusion)
+            { Name = "InjectNoisyExpressions"; Settings = {
+                ExpressionsPerFunction = 30;  -- how many per function
+                Complexity = 5;              -- how deeply nested/complex
+            }},
             -- Encrypt strings first so splits happen on original strings
             { Name = "EncryptStrings"; Settings = {} },
 
@@ -19,18 +28,18 @@ return {
             { Name = "SplitStrings"; Settings = {
                 Treshold = 1;                    -- default: 1 (apply to all string nodes relatively)
                 MinLength = 5;                   -- default minimal chunk length
-                MaxLength = 5;                   -- default maximal chunk length
+                MaxLength = 50;                   -- default maximal chunk length
                 ConcatenationType = "custom";    -- "strcat", "table" or "custom"
                 CustomFunctionType = "global";   -- "global", "local" or "inline"
                 CustomLocalFunctionsCount = 2;   -- number of local functions per scope if using local
             }},
 
+            -- Tamper-protection layer
             { Name = "AntiTamper"; Settings = { UseDebug = false } },
 
-            -- 🆕 Add our Integrity Checks step here
-            { Name = "InjectIntegrityChecks"; Settings = {} },
-
             { Name = "Vmify"; Settings = {} },
+
+            -- ConstantArray restored
             { Name = "ConstantArray"; Settings = {
                 Treshold    = 1;
                 StringsOnly = true;
@@ -38,17 +47,10 @@ return {
                 Rotate      = true;
                 LocalWrapperTreshold = 0;
             }},
-            { Name = "ProxifyLocals"; Settings = {} },
+
             { Name = "AddVararg"; Settings = {} },
             { Name = "NumbersToExpressions"; Settings = {} },
             { Name = "WrapInFunction"; Settings = {} },
-
-            -- WatermarkCheck: placed last so it is less likely to be modified by previous steps.
-            { Name = "WatermarkCheck"; Settings = {
-                Content = "fuck black ass niggers";
-                CustomVariable = "_WATERMARK";
-                MakeLocal = false; -- set true to create a local variable instead
-            } },
         }
     };
 }

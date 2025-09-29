@@ -29,9 +29,14 @@ function InjectIntegrityChecks:apply(ast)
         end
     end)
     
+    -- Replace error call with a default template if none is found
     if template == nil then
-        -- Failed to find a template, don't crash the pipeline
-        return ast
+        -- Could not find a variable declaration template, using default dummy template
+        template = {
+            kind = AstKind.LocalVariableDeclaration,
+            identifiers = { { kind = AstKind.Identifier, name = "_dummy" } },
+            values = { Ast.NumberExpression(0) }
+        }
     end
     
     -- Now insert our own declarations based on the template structure
@@ -39,18 +44,33 @@ function InjectIntegrityChecks:apply(ast)
         if node.kind == AstKind.FunctionDeclaration
         or node.kind == AstKind.LocalFunctionDeclaration
         or node.kind == AstKind.FunctionLiteralExpression then
-            if node.body and node.body.statements then
-                -- Crafting a declaration like: local _check = 1
-                local simple = {
-                    kind = AstKind.LocalVariableDeclaration,
-                    identifiers = {
-                        { kind = AstKind.Identifier, name = "_check" .. tostring(math.random(1000, 9999)) }
-                    },
-                    values = {
-                        Ast.NumberExpression(math.random(1, 1000))
-                    }
-                }
-                
+            if node.body then
+                if type(node.body.statements) ~= 'table' then
+                    node.body.statements = {}
+                end
+                -- Use the function's scope for variable declaration
+                local scope = node.body.scope or data.scope or ast.body.scope
+                local varId = scope and scope.addVariable and scope:addVariable() or "_check" .. tostring(math.random(1000, 9999))
+                -- Deep copy function for the template
+                local function deepCopy(t)
+                    local copy = {}
+                    for k, v in pairs(t) do
+                        if type(v) == 'table' then
+                            copy[k] = deepCopy(v)
+                        else
+                            copy[k] = v
+                        end
+                    end
+                    return copy
+                end
+                -- Crafting a new declaration based on a deep copy of the template
+                local simple = deepCopy(template)
+                -- Use correct field names for AST compatibility
+                simple.identifiers = nil
+                simple.ids = { varId }
+                simple.values = nil
+                simple.expressions = { Ast.NumberExpression(math.random(1, 1000)) }
+                simple.scope = scope
                 -- Insert at beginning of function
                 table.insert(node.body.statements, 1, simple)
             end

@@ -142,6 +142,15 @@ function Parser:parse(code)
 	self.tokenizer:append(code);
 	self.tokens = self.tokenizer:scanAll();
 	self.length = #self.tokens;
+	self.strictMode = false;
+
+	-- Check for strict mode
+	while is(self, TokenKind.Comment) do
+		if peek(self).source == "--!strict" then
+			self.strictMode = true;
+		end
+		self.index = self.index + 1;
+	end
 	
 	-- Create Global Variable Scope
 	local globalScope = Scope:newGlobal();
@@ -274,7 +283,7 @@ function Parser:statement(scope, currentLoop)
 	
 	-- Function Declaration
 	if(consume(self, TokenKind.Keyword, "function")) then
-		-- TODO: Parse Function Declaration Name
+		-- Get function name before parameters
 		local obj = self:funcName(scope);
 		local baseScope = obj.scope;
 		local baseId = obj.id;
@@ -291,10 +300,22 @@ function Parser:statement(scope, currentLoop)
 			table.insert(args, 1, Ast.VariableExpression(funcScope, id));
 		end
 
+		-- Handle return type annotation
+		local returnType = nil;
+		if(self.luaVersion == LuaVersion.LuaU and consume(self, TokenKind.Symbol, ":")) then
+			if(consume(self, TokenKind.Symbol, "(")) then
+				expect(self, TokenKind.Symbol, ")");
+				returnType = "void";
+			else
+				local typeIdent = expect(self, TokenKind.Ident);
+				returnType = typeIdent.value;
+			end
+		end
+
 		local body = self:block(nil, false, funcScope);
 		expect(self, TokenKind.Keyword, "end");
 		
-		return Ast.FunctionDeclaration(baseScope, baseId, indices, args, body);
+		return Ast.FunctionDeclaration(baseScope, baseId, indices, args, body, returnType);
 	end
 	
 	-- Local Function or Variable Declaration
@@ -750,34 +771,69 @@ function Parser:expressionFunctionLiteral(parentScope)
 end
 
 function Parser:functionArgList(scope)
-	local args = {};
-	if(consume(self, TokenKind.Symbol, "...")) then
-		table.insert(args, Ast.VarargExpression());
-		return args;
-	end
-	
-	if(is(self, TokenKind.Ident)) then
-		local ident = get(self);
-		local name = ident.value;
-		
-		local id = scope:addVariable(name, ident);
-		table.insert(args, Ast.VariableExpression(scope, id));
-		
-		while(consume(self, TokenKind.Symbol, ",")) do
-			if(consume(self, TokenKind.Symbol, "...")) then
-				table.insert(args, Ast.VarargExpression());
-				return args;
-			end
-			
-			ident = get(self);
-			name = ident.value;
+    local args = {}
+    if (consume(self, TokenKind.Symbol, "...")) then
+        table.insert(args, Ast.VarargExpression())
+        return args
+    end
 
-			id = scope:addVariable(name, ident);
-			table.insert(args, Ast.VariableExpression(scope, id));
-		end
-	end
-	
-	return args;
+    if (is(self, TokenKind.Ident)) then
+        repeat
+            local ident = get(self)
+            local name = ident.value
+            local id = scope:addVariable(name, ident)
+
+            local typeAnnotation = nil
+            if (consume(self, TokenKind.Symbol, ":")) then
+                -- Eat the type name (in Luau it’s usually an Ident, like "string" or "boolean")
+                local typeIdent = expect(self, TokenKind.Ident)
+                typeAnnotation = typeIdent.value
+            end
+
+            if typeAnnotation then
+                table.insert(args, Ast.TypedVariableExpression(scope, id, typeAnnotation))
+            else
+                table.insert(args, Ast.VariableExpression(scope, id))
+            end
+        until not consume(self, TokenKind.Symbol, ",");
+
+        -- Handle "... vararg"
+        if consume(self, TokenKind.Symbol, "...") then
+            table.insert(args, Ast.VarargExpression())
+        end
+    end
+    return args
+end
+
+-- Add support for strict mode and type annotations
+function Parser:parseStrictMode()
+    if consume(self, TokenKind.Comment, "--!strict") then
+        self.strictMode = true
+    end
+end
+
+function Parser:parseFunctionDeclaration(scope)
+    local ident = expect(self, TokenKind.Ident)
+    local name = ident.value
+    local id = scope:addVariable(name, ident)
+
+    local funcScope = Scope:new(scope)
+
+    expect(self, TokenKind.Symbol, "(")
+    local args = self:functionArgList(funcScope)
+    expect(self, TokenKind.Symbol, ")")
+
+    local returnType = nil
+    if consume(self, TokenKind.Symbol, ":") then
+        -- Parse return type annotation
+        local typeIdent = expect(self, TokenKind.Ident)
+        returnType = typeIdent.value
+    end
+
+    local body = self:block(nil, false, funcScope)
+    expect(self, TokenKind.Keyword, "end")
+
+    return Ast.FunctionDeclaration(scope, id, args, body, returnType)
 end
 
 function Parser:expressionFunctionCall(scope, base)

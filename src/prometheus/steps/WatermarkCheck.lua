@@ -33,18 +33,24 @@ function WatermarkCheck:init(settings)
 
 end
 
+local AstKind = Ast.AstKind
+
 function WatermarkCheck:apply(ast, pipeline)
   self.CustomVariable = "_" .. callNameGenerator(pipeline.namegenerator, math.random(10000000000, 100000000000));
-  pipeline:addStep(Watermark:new(self));
-
+  -- Insert watermark as a visible string literal
   local body = ast.body;
   local watermarkExpression = Ast.StringExpression(self.Content);
   local scope, variable = ast.globalScope:resolve(self.CustomVariable);
   local watermark = Ast.VariableExpression(ast.globalScope, variable);
-  local notEqualsExpression = Ast.NotEqualsExpression(watermark, watermarkExpression);
-  local ifBody = Ast.Block({Ast.ReturnStatement({})}, Scope:new(ast.body.scope));
-
-  table.insert(body.statements, 1, Ast.IfStatement(notEqualsExpression, ifBody, {}, nil));
+  -- Direct assignment, not protected
+  -- Use Ast.AssignmentStatement with correct field names for compiler compatibility
+  local stmt = {
+    kind = AstKind.AssignmentStatement,
+    lhs = {watermark},
+    rhs = {watermarkExpression},
+    scope = ast.globalScope
+  }
+  table.insert(body.statements, 1, stmt);
 end
 
 return WatermarkCheck;

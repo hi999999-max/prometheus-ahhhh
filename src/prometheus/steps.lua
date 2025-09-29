@@ -10,6 +10,7 @@ return {
 	AddVararg             = require("prometheus.steps.AddVararg");
 	WatermarkCheck        = require("prometheus.steps.WatermarkCheck");
 
-	-- ✅ our custom step:
-	InjectIntegrityChecks = require("prometheus.steps.InjectIntegrityChecks");
+	-- ✅ our custom steps:
+	InjectIntegrityChecks  = require("prometheus.steps.InjectIntegrityChecks");
+	InjectNoisyExpressions = require("prometheus.steps.InjectNoisyExpressions");
 }
