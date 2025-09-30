@@ -231,9 +231,9 @@ end
 			end
 		end
 		return seed;
-	end
-end]]
-
+	end]]
+		-- end of generated code chunk (fixed: removed the stray extra 'end')
+		-- print(code) -- uncomment to debug the generated code
 		return code;
     end
 
