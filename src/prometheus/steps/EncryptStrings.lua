@@ -106,31 +106,68 @@ function EncryptStrings:CreateEncrypionService()
 
     local function genCode()
         local code = [[
-do
-       -- I don't know what this is
-	for i = 1, 20000 do
-		pcall(function()
-			game:GetService("Players")
-		end)
-	end
-		
-	coroutine.wrap(function()
-	    while true do
-	        c9 = newproxy
-	        wait(10)
-	    end
-	end)()
-	
-	if a9380 then
-	    error("tamper detected")
-	    while true do end
-	end
+  
+	-- helper to mark tampering & error
+local function lock_and_error(reason)
+    local env = getfenv()
+    env.dumbassIsTampering = true
+    env.FatBoy = true
+    env.Stupid = true
+    env["99Seconds"] = true
+    error("Hm, I dont get to talk to people like you. (" .. tostring(reason) .. ")", 2)
+end
 
-	if v2354 and v2354 == z937597 then
-	    error("tamper detected")
-	    while true do end
-	end
-		
+-- robust newproxy/table trap (use this instead of calling setmetatable() blindly)
+local trap_obj
+do
+    local success, np = pcall(function()
+        return (type(newproxy) == "function") and newproxy(true) or nil
+    end)
+
+    local function install_mt_on_table(t)
+        setmetatable(t, {
+            __tostring = function() lock_and_error("proxy/table inspected") end,
+            __index    = function() lock_and_error("proxy/table indexed") end,
+        })
+    end
+
+    if success and np then
+        -- try modify existing metatable if it's a table
+        local mt = getmetatable(np)
+        if type(mt) == "table" then
+            mt.__tostring = function() lock_and_error("proxy inspected") end
+            mt.__index    = function() lock_and_error("proxy indexed") end
+            trap_obj = np
+        else
+            -- try debug.setmetatable if available (works for userdata in some runtimes)
+            if type(debug) == "table" and type(debug.setmetatable) == "function" then
+                local mt2 = {
+                    __tostring = function() lock_and_error("proxy inspected") end,
+                    __index    = function() lock_and_error("proxy indexed") end,
+                }
+                pcall(function() debug.setmetatable(np, mt2) end)
+                trap_obj = np
+            else
+                -- final safe fallback: use a table instead of userdata
+                trap_obj = {}
+                install_mt_on_table(trap_obj)
+            end
+        end
+    else
+        -- newproxy not available or failed: fallback to table trap
+        trap_obj = {}
+        install_mt_on_table(trap_obj)
+    end
+
+    -- hide the trap behind a local closure so it's not trivially nilled out
+    local function hidden_trap()
+        return trap_obj
+    end
+
+    -- exercise the trap lightly (pcall to avoid hard crash)
+    pcall(function() tostring(hidden_trap()) end)
+end	
+
 	local floor = math.floor
 	local random = math.random;
 	local remove = table.remove;
