@@ -18,47 +18,48 @@ function InjectNoisyExpressions:init(settings)
     self.Complexity             = settings.Complexity or 3
 end
 
-local function generateExpr(depth)
-    if depth <= 1 then
-        return Ast.NumberExpression(math.random(1, 999))
-    end
-    -- Use a descriptive variable name for operators
-    local operators = { "AddExpression", "SubExpression", "MulExpression", "DivExpression", "ModExpression", "PowExpression" }
-    local opName = operators[math.random(#operators)]
-    -- Ensure clarity in recursive calls with proper spacing
-    return Ast[opName](generateExpr(depth - 1), generateExpr(depth - 1))
-end
-
+-- Updated makeJunkStatement to generate a harmless do-end block containing a local variable declaration
 local function makeJunkStatement(complexity, scope)
-    local expr = generateExpr(complexity)
-    local var  = scope and scope.addVariable and scope:addVariable() or "_junk" .. tostring(math.random(1000, 9999))
-    return {
-        kind        = AstKind.LocalVariableDeclaration,
-        ids         = { var },          -- compiler expects `ids`
-        expressions = { expr },         -- correct field name for values
-        scope       = scope             -- attach scope
-    }
+    local junkStr = "junk_" .. tostring(math.random(100000, 999999)) .. " useless junk code"
+    local strExp = Ast.StringExpression(junkStr)
+
+    -- Create a local variable declaration using Ast helpers so all kinds/fields are set
+    local dummyVar = scope:addVariable()
+    local localDecl = Ast.LocalVariableDeclaration(scope, { dummyVar }, { strExp })
+
+    -- Wrap the local declaration in a proper block and DoStatement
+    local block = Ast.Block({ localDecl }, scope)
+    return Ast.DoStatement(block)
 end
 
-function InjectNoisyExpressions:apply(ast)
-    visitast(ast, nil, function(node, data)
-        if node.kind == AstKind.FunctionDeclaration
-        or node.kind == AstKind.LocalFunctionDeclaration
-        or node.kind == AstKind.FunctionLiteralExpression then
-            if node.body then
-                if type(node.body.statements) ~= 'table' then
-                    node.body.statements = {}
-                end
-                for i = 1, self.ExpressionsPerFunction do
-                    -- Determine the injection scope with clear fallback logic
-                    local injectionScope = node.body.scope or data.scope or ast.body.scope
-                    local junk = makeJunkStatement(self.Complexity, injectionScope)
-                    local pos  = math.random(1, #node.body.statements + 1)
-                    table.insert(node.body.statements, pos, junk)
-                end
-            end
-        end
-    end)
+function InjectNoisyExpressions:apply(ast, pipeline)
+    -- Use the provided pipeline's unparser when available, otherwise instantiate a new one
+    local Unparser = require("prometheus.unparser")
+    local Enums = require("prometheus.enums")
+    local unp = (pipeline and pipeline.unparser) or Unparser:new({ LuaVersion = Enums.LuaVersion.LuaU, PrettyPrint = false })
+
+    -- Safely unparse the existing AST to a string
+    local ok, codeStr = pcall(function() return unp:unparse(ast) end)
+    if not ok or type(codeStr) ~= "string" then
+        -- If unparsing fails, fall back to an empty script to avoid injecting malformed nodes
+        codeStr = ""
+    end
+
+    -- Create a string expression node for the code
+    local codeString = Ast.StringExpression(codeStr)
+
+    -- Resolve the global 'loadstring' function in the top-level scope
+    local scope = ast.body.scope
+    local loadScope, loadId = scope:resolveGlobal("loadstring")
+    local loadVar = Ast.VariableExpression(loadScope, loadId)
+
+    -- build loadstring(<codeStr>)
+    local callLoadstring = Ast.FunctionCallExpression(loadVar, { codeString })
+    -- build (loadstring(<codeStr>))() as a function-call-statement
+    local stmt = Ast.FunctionCallStatement(callLoadstring, {})
+
+    -- Replace the entire top-level body with the single loadstring call statement
+    ast.body.statements = { stmt }
     return ast
 end
 

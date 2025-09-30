@@ -143,7 +143,7 @@ function Tokenizer:new(settings)
 		Symbols           = conventions.Symbols,
 		SymbolsLookup     = lookupify(conventions.Symbols),
 		
-		StringStartLookup = lookupify({"\"", "\'"}),
+	StringStartLookup = lookupify({"\"", "\'", "`"}),
 		annotations = {},
 	};
 	

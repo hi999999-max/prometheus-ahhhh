@@ -13,14 +13,6 @@ return {
 
         -- Obfuscation steps
         Steps = {
-            -- ✅ Integrity Checks (lightweight dummy checks in functions)
-            { Name = "InjectIntegrityChecks"; Settings = {} },
-
-            -- ✅ Noisy Expressions (complex junk code for confusion)
-            { Name = "InjectNoisyExpressions"; Settings = {
-                ExpressionsPerFunction = 30;  -- how many per function
-                Complexity = 5;              -- how deeply nested/complex
-            }},
             -- Encrypt strings first so splits happen on original strings
             { Name = "EncryptStrings"; Settings = {} },
 
@@ -51,6 +43,7 @@ return {
             { Name = "AddVararg"; Settings = {} },
             { Name = "NumbersToExpressions"; Settings = {} },
             { Name = "WrapInFunction"; Settings = {} },
+            { Name = "InjectIntegrityChecks"; Settings = {} },
         }
     };
 }
