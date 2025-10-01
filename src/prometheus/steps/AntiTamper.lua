@@ -38,6 +38,8 @@ function AntiTamper:apply(ast, pipeline)
         local string = RandomStrings.randomString();
         code = code .. [[
 
+        if imnil then error("nice detected on ts basic ahh anti tamper") end
+
             -- Anti Beautify
 			local sethook = debug and debug.sethook or function() end;
 			local allowedLine = nil;
@@ -106,7 +108,7 @@ function AntiTamper:apply(ast, pipeline)
     end
     code = code .. [[
     local gmatch = string.gmatch;
-    local err = function() error("Tamper Detected!") end;
+    local err = function() error("nah") end;
 
     local pcallIntact2 = false;
     local pcallIntact = pcall(function()

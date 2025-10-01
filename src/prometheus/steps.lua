@@ -12,5 +12,4 @@ return {
 
 	-- ✅ our custom steps:
 	InjectIntegrityChecks  = require("prometheus.steps.InjectIntegrityChecks");
-	InjectNoisyExpressions = require("prometheus.steps.InjectNoisyExpressions");
 }

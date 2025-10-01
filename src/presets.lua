@@ -37,7 +37,7 @@ return {
                 StringsOnly = true;
                 Shuffle     = true;
                 Rotate      = true;
-                LocalWrapperTreshold = 0;
+                LocalWrapperTreshold = 1;
             }},
 
             { Name = "AddVararg"; Settings = {} },

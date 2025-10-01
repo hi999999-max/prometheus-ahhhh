@@ -88,6 +88,7 @@ ConstantArray.SettingsDescriptor = {
 		values = {
 			"none",
 			"r2xor",
+			"ascii85",
 		},
 	}
 }
@@ -135,6 +136,11 @@ function ConstantArray:indexing(index, data)
 			Ast.StringExpression(wrapper.index)
 		), args);
 	else
+		-- Use proxy table if available
+		if self.proxyId then
+			data.scope:addReferenceToHigherScope(self.rootScope, self.proxyId);
+			return Ast.IndexExpression(Ast.VariableExpression(self.rootScope, self.proxyId), Ast.NumberExpression(index - self.wrapperOffset));
+		end
 		data.scope:addReferenceToHigherScope(self.rootScope,  self.wrapperId);
 		return Ast.FunctionCallExpression(Ast.VariableExpression(self.rootScope, self.wrapperId), {
 			Ast.NumberExpression(index - self.wrapperOffset);
@@ -286,6 +292,83 @@ function ConstantArray:addDecodeCode(ast)
 	
 		table.insert(ast.body.statements, 1, forStat);
 	end
+
+	if self.Encoding == "ascii85" then
+		local decodeAscii85 = [[
+		local function decode85(s)
+			local out = {}
+			local i = 1
+			local len = #s
+			while i <= len do
+				local c = s:sub(i, i)
+				if c == "z" then
+					out[#out+1] = string.char(0,0,0,0)
+					i = i + 1
+				else
+					local chunk = {}
+					local count = 0
+					for j = 0,4 do
+						local pos = i + j
+						if pos <= len then
+							chunk[#chunk+1] = string.byte(s, pos) - 33
+							count = count + 1
+						else
+							chunk[#chunk+1] = 84 -- 'u' placeholder
+						end
+					end
+					i = i + 5
+					local value = 0
+					for _, v in ipairs(chunk) do
+						value = value * 85 + v
+					end
+					local bytes = { math.floor(value / 16777216) % 256, math.floor(value / 65536) % 256, math.floor(value / 256) % 256, value % 256 }
+					for _, b in ipairs(bytes) do out[#out+1] = string.char(b) end
+				end
+			end
+			return table.concat(out)
+		end
+
+		]];
+
+		local decodeCodeAscii = [[
+		for i = 1, #ARR do
+			local v = ARR[i]
+			if type(v) == "string" then
+				ARR[i] = decode85(v)
+			end
+		end
+		]];
+
+		local parser2 = Parser:new({ LuaVersion = LuaVersion.LuaU });
+		local newAst2 = parser2:parse(decodeAscii85 .. decodeCodeAscii);
+		-- Ensure both the decode function body scope and the for-loop body scope are attached to the main ast
+		local funcStat = newAst2.body.statements[1];
+		local forStat2 = newAst2.body.statements[2];
+		if funcStat and funcStat.body and funcStat.body.scope then
+			-- Clear cross-AST references so setParent doesn't attempt to propagate references
+			funcStat.body.scope.variablesFromHigherScopes = {};
+			funcStat.body.scope.referenceCounts = {};
+			funcStat.body.scope:setParent(ast.body.scope);
+		end
+		if forStat2 and forStat2.body and forStat2.body.scope then
+			forStat2.body.scope.variablesFromHigherScopes = {};
+			forStat2.body.scope.referenceCounts = {};
+			forStat2.body.scope:setParent(ast.body.scope);
+		end
+
+		visitast(newAst2, nil, function(node, data)
+			if(node.kind == AstKind.VariableExpression) then
+				if(node.scope:getVariableName(node.id) == "ARR") then
+					data.scope:removeReferenceToHigherScope(node.scope, node.id);
+					data.scope:addReferenceToHigherScope(self.rootScope, self.arrId);
+					node.scope = self.rootScope;
+					node.id    = self.arrId;
+				end
+			end
+		end)
+
+		table.insert(ast.body.statements, 1, forStat2);
+	end
 end
 
 -- No longer needed: base64 lookup generation removed and replaced by numeric key XOR
@@ -321,6 +404,53 @@ function ConstantArray:encode(str)
 			local v = ((b * 4) % 256) + math.floor(b / 64)
 			local enc = bxor(v, key)
 			out[i] = string.char(enc)
+		end
+		return table.concat(out)
+	end
+
+	if self.Encoding == "ascii85" then
+		local out = {}
+		local len = #str
+		local i = 1
+		while i <= len do
+			local chunk = {}
+			local chunkLen = 0
+			for j = 0, 3 do
+				local pos = i + j
+				if pos <= len then
+					chunkLen = chunkLen + 1
+					chunk[chunkLen] = string.byte(str, pos)
+				else
+					chunk[chunkLen + 1] = 0
+				end
+			end
+			local value = 0
+			for j = 1, 4 do
+				value = value * 256 + (chunk[j] or 0)
+			end
+			if value == 0 then
+				if chunkLen == 4 then
+					out[#out + 1] = "z"
+				else
+					-- for partial zero-chunk, produce proper characters below
+					local chars = {}
+					local v = value
+					for k = 1, 5 do
+						chars[6 - k] = string.char((v % 85) + 33)
+						v = math.floor(v / 85)
+					end
+					out[#out + 1] = string.sub(table.concat(chars), 1, chunkLen + 1)
+				end
+			else
+				local chars = {}
+				local v = value
+				for k = 1, 5 do
+					chars[6 - k] = string.char((v % 85) + 33)
+					v = math.floor(v / 85)
+				end
+				out[#out + 1] = (chunkLen == 4) and table.concat(chars) or string.sub(table.concat(chars), 1, chunkLen + 1)
+			end
+			i = i + 4
 		end
 		return table.concat(out)
 	end
@@ -498,6 +628,25 @@ function ConstantArray:apply(ast, pipeline)
 					)
 				});
 			}, funcScope)));
+
+			-- Also create a proxy table that uses setmetatable(..., { __index = function(_, k) return wrapper(k) end })
+			self.proxyId = self.rootScope:addVariable();
+			local setmetaScope, setmetaId = self.rootScope:resolveGlobal("setmetatable");
+			local setmetaVar = Ast.VariableExpression(setmetaScope, setmetaId);
+
+			-- Build function literal for __index
+			local metaFuncScope = Scope:new(self.rootScope);
+			local _arg = metaFuncScope:addVariable();
+			local k_arg = metaFuncScope:addVariable();
+			local callWrapper = Ast.FunctionCallExpression(Ast.VariableExpression(self.rootScope, self.wrapperId), { Ast.VariableExpression(metaFuncScope, k_arg) });
+			local metaFunc = Ast.FunctionLiteralExpression({ Ast.VariableExpression(metaFuncScope, _arg), Ast.VariableExpression(metaFuncScope, k_arg) }, Ast.Block({ Ast.ReturnStatement({ callWrapper }) }, metaFuncScope));
+
+			local metaEntries = { Ast.KeyedTableEntry(Ast.StringExpression("__index"), metaFunc) };
+			local metaTable = Ast.TableConstructorExpression(metaEntries);
+
+			local proxyInit = Ast.FunctionCallExpression(setmetaVar, { Ast.TableConstructorExpression({}), metaTable });
+			-- Insert proxy local declaration
+			table.insert(ast.body.statements, 1, Ast.LocalVariableDeclaration(self.rootScope, { self.proxyId }, { proxyInit }));
 
 			-- Resulting Code:
 			-- function xy(a)
